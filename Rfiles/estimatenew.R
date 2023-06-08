@@ -99,11 +99,12 @@ estimate3 <- function(Data, I, statedim, delta, powers) {
   for (i in 1:ncol(I)) {
     comp <- as.logical(rep(1, N) - I[, i])
     if (rule_of_thumb) {
-      fit <- glmnet::glmnet(y[comp] * X[comp, ], y[comp] * Hg_1_hat[comp, i], family = "gaussian", alpha = 1, lambda = rule_of_thumb_penalty / sum(comp))
+      lambda <- rule_of_thumb_penalty / sum(comp) 
+      cvfit <- cv.glmnet(X_sub, y_sub, alpha = 1, lambda = lambda, nfolds = 10)
     } else {
-      fit <- cv.glmnet(x = y[comp] * X[comp, ], y = y[comp] * Hg_1_hat[, i], family = "gaussian", nfolds = 10)
+      cvfit <- cv.glmnet(x = y[comp] * X[comp, ], y = y[comp] * Hg_1_hat[, i], family = "gaussian", nfolds = 10)
     }
-    idx <- fit$indexmin
+    idx <- cvfit$indexmin
     # coef <- coef(fit, s = fit$lambda[idx])
     g_2_hat[I[, i]] <- cbind(1, X[I[, i], ]) %*% coef
   }
@@ -161,7 +162,8 @@ estimate3 <- function(Data, I, statedim, delta, powers) {
   for (i in 1:ncol(I)) {
     comp <- as.logical(1 - I[, i])
     if (rule_of_thumb) {
-      cvfit <- glmnet::glmnet(X_n[comp, ], 1 - y[comp], family = "binomial", alpha = 1, lambda = rule_of_thumb_penalty / sum(comp))
+      lambda <- rule_of_thumb_penalty / sum(comp) 
+      cvfit <- cv.glmnet(X_sub, y_sub, alpha = 1, lambda = lambda, nfolds = 10)
     } else {
       cvfit <- cv.glmnet(x = X_n[comp, ], y = 1 - y[comp], family = "gaussian", nfolds = 10)
     }
@@ -183,7 +185,8 @@ estimate3 <- function(Data, I, statedim, delta, powers) {
     for (i in 1:ncol(I)) {
       comp <- as.logical(1 - I[, i])
       if (rule_of_thumb) {
-        fit <- glmnet::glmnet(X_n[comp, ], -delta * d[comp, j] * lamb_part[comp], family = "gaussian", alpha = 1, lambda = rule_of_thumb_penalty / sum(comp))
+        lambda <- rule_of_thumb_penalty / sum(comp) 
+        cvfit <- cv.glmnet(X_sub, y_sub, alpha = 1, lambda = lambda, nfolds = 10)
       } else {
         cvfit <- cv.glmnet(x = X_n[comp, ], y = -delta * d[comp, j] * lamb_part[comp], family = "gaussian", nfolds = 10)
       }
