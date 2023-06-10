@@ -13,7 +13,6 @@ DPsolve_cont3 <- function(params, s_grid, z_grid, tn) {
   Z_grid <- array(grid$y, c(size_s, size_z))
   
   EV1 <- matrix(0, nrow = size_z, ncol = size_s)  # initial guess of the expected value function
-  step_change <- 1
   
   # Mileage transitions (renewal)
   replacement_transitions <- 1 + rnorm(prod(c(size_z, size_s, tn)), mean = params$state_transition[1], sd = params$state_transition[2])^2
@@ -65,18 +64,37 @@ DPsolve_cont3 <- function(params, s_grid, z_grid, tn) {
   replacement_EV <- array(NA, dim = c(size_z, size_s, tn))
   maintenance_EV <- array(NA, dim = c(size_z, size_s, tn))
   
+  step_change <- 1
+  
   while (step_change > 0.0000001) {
     
-    for (i in 1:tn) {
+    # for (i in 1:tn) {
+    #   replacement_result <- interp2(s_grid, z_grid, EV1, as.vector(replacement_transitions[,,i]), as.vector(z_draws[,,i]), method = "linear")
+    #   replacement_EV[ , ,i] <- array(replacement_result, c(size_z, size_s))
+    #   replacement_EV[is.na(replacement_EV)] <- -1000000
+    #   
+    #   maintenance_result <- interp2(s_grid, z_grid, EV1, as.vector(maintenance_transitions[,,i]), as.vector(z_draws[,,i]), method = "linear")
+    #   maintenance_EV[ , ,i] <- array(maintenance_result, c(size_z, size_s))
+    #   maintenance_EV[is.na(maintenance_EV)] <- -1000000
+    # }
+    
+    replacement_EV <- array(0, dim = c(size_z, size_s, tn))
+    maintenance_EV <- array(0, dim = c(size_z, size_s, tn))
+
+    interpolate_and_assign <- function(i) {
       replacement_result <- interp2(s_grid, z_grid, EV1, as.vector(replacement_transitions[,,i]), as.vector(z_draws[,,i]), method = "linear")
       replacement_EV[ , ,i] <- array(replacement_result, c(size_z, size_s))
-      
+      replacement_EV[is.na(replacement_EV)] <- -1000000
+
       maintenance_result <- interp2(s_grid, z_grid, EV1, as.vector(maintenance_transitions[,,i]), as.vector(z_draws[,,i]), method = "linear")
       maintenance_EV[ , ,i] <- array(maintenance_result, c(size_z, size_s))
+      maintenance_EV[is.na(maintenance_EV)] <- -1000000
     }
+
+    apply(array(1:tn, dim = 1), MARGIN = 1, FUN = interpolate_and_assign)
     
-    EV <- log(exp(params.maintenance_factor * sqrt(S_grid) + params.beta * mean(maintenance_EV, 3)) +
-                exp(params.replacement_cost + params.beta * mean(replacement_EV, 3)))
+    EV <- log(exp(params$maintenance_factor * sqrt(S_grid) + params$beta * mean(maintenance_EV, 3)) +
+                exp(params$replacement_cost + params$beta * mean(replacement_EV, 3)))
     
     step_change <- abs(EV - EV1)
     step_change <- max(step_change)
@@ -87,17 +105,34 @@ DPsolve_cont3 <- function(params, s_grid, z_grid, tn) {
   
   EV1_vec <- as.vector(EV1)
   
-  for (i in 1:tn) {
-    replacement_result <- interp(S_grid, Z_grid, EV1, as.vector(replacement_transitions[,,i]), as.vector(z_draws[,,i]), linear = FALSE, extrap = TRUE)
-    replacement_EV[ , ,i] <- array(diag(replacement_result), c(size_z, size_s))
+  replacement_EV <- array(0, dim = c(size_z, size_s, tn))
+  maintenance_EV <- array(0, dim = c(size_z, size_s, tn))
+  
+  interpolate_and_assign <- function(i) {
+    replacement_result <- interp(S_grid, Z_grid, EV1, as.vector(replacement_transitions[,,i]), as.vector(z_draws[,,i]), linear = FALSE, extrap = TRUE, duplicate = "mean")
+    replacement_EV[ , ,i] <- array(diag(unlist(replacement_result)), c(size_z, size_s))
+    replacement_EV[is.na(replacement_EV)] <- -1000000
     
-    maintenance_result <- interp(S_grid, S_grid, EV1, as.vector(maintenance_transitions[,,i]), as.vector(z_draws[,,i]), linear = FALSE, extrap = TRUE)
-    maintenance_EV[ , ,i] <- array(diag(maintenance_result), c(size_z, size_s))
+    maintenance_result <- interp(S_grid, S_grid, EV1, as.vector(maintenance_transitions[,,i]), as.vector(z_draws[,,i]), linear = FALSE, extrap = TRUE, duplicate = "mean")
+    maintenance_EV[ , ,i] <- array(diag(unlist(maintenance_result)), c(size_z, size_s))
+    maintenance_EV[is.na(maintenance_EV)] <- -1000000
   }
   
-  grid <- meshgrid(s_grid, z_grid)
-  S_grid <- grid$S_grid
-  Z_grid <- grid$Z_grid
+  apply(array(1:tn, dim = 1), MARGIN = 1, FUN = interpolate_and_assign)
+  
+  # for (i in 1:tn) {
+  #   replacement_result <- interp(S_grid, Z_grid, EV1, as.vector(replacement_transitions[,,i]), as.vector(z_draws[,,i]), linear = FALSE, extrap = TRUE, duplicate = "mean")
+  #   replacement_EV[ , ,i] <- array(diag(unlist(replacement_result)), c(size_z, size_s))
+  #   replacement_EV[is.na(replacement_EV)] <- -1000000
+  #   
+  #   maintenance_result <- interp(S_grid, S_grid, EV1, as.vector(maintenance_transitions[,,i]), as.vector(z_draws[,,i]), linear = FALSE, extrap = TRUE, duplicate = "mean")
+  #   maintenance_EV[ , ,i] <- array(diag(unlist(maintenance_result)), c(size_z, size_s))
+  #   maintenance_EV[is.na(maintenance_EV)] <- -1000000
+  # }
+  
+  # grid <- meshgrid(s_grid, z_grid)
+  # S_grid <- grid$S_grid
+  # Z_grid <- grid$Z_grid
   
   # Evaluate choice probabilities on the grid of states
   CCP_grid <- 1 / (1 + exp(params$maintenance_factor * sqrt(S_grid) + 
@@ -106,13 +141,13 @@ DPsolve_cont3 <- function(params, s_grid, z_grid, tn) {
   
   # Define CCP function using interpolation
   CCP_function <- function(s, z) {
-    for (i in 1:tn) {
-      interp_result <- interp2(s_grid, z_grid, , z = CCP_grid, xi = s, yi = z, method = "linear")
-      replacement_EV[ , ,i] <- array(replacement_result, c(size_z, size_s))
-      return(array(interp_result, c(size_z, size_s)))
-    }
-    
-    interp2(x = S_grid, y = Z_grid, z = CCP_grid, xi = s, yi = z, method = "linear", extrap = TRUE)
+    interp_result <- interp2(s_grid, z_grid, CCP_grid, s, z, method = "linear")
+    interp_result[is.na(interp_result)] <- 1
+    # for (i in 1:tn) {
+    #   interp_result[ , ,i] <- interp2(s_grid, z_grid, CCP_grid, s, z, method = "linear")
+    #   # interp_result[ , ,i] <- array(interp_result, c(size_z, size_s))
+    # }
+    return(interp_result)
   }
   
   return(CCP_function)
@@ -149,16 +184,16 @@ MCdata3 <- function(CCP_function, params, sample_size, periods) {
   # z_draws_temp
   slices <- (dim(Zchi)[1] - (z_dimension %% 2) + 1):dim(Zchi)[1]
   Zchi_sub <- array(Zchi[slices, 1, ], dim = c(1, sample_size*(periods+burn_in+1)))
-  Z_draws <- abind(Ztemp, Zchi_sub, along = 1)
+  Z_draws <- t(abind(Ztemp, Zchi_sub, along = 1))
   
   # Compute z_draws by multiplying Z_draws with params.multi_index
-  z_draws <- t(Z_draws) %*% params$multi_index
+  z_draws <- Z_draws %*% params$multi_index 
   
   # Define the indices to save each variable
   z_block <- 3:(3 + z_dimension - 1)
   choicen_block <- 3 + z_dimension
   sn_block <- 3 + z_dimension + 1
-  zn_block <- 3 + z_dimension + 2:(3 + 2 * z_dimension + 1)
+  zn_block <- (3 + z_dimension + 2):(3 + 2 * z_dimension + 1)
   
   durations <- vector()
   
@@ -213,8 +248,11 @@ library(akima)
 library(stats)
 
 # Set the current working directory
+setwd("C:\\Users\\mengs\\OneDrive\\berkeley\\RA\\Vira\\Locally_Robust_Monte_Carlo_DDC\\Locally_Robust_Monte_Carlo_DDC")
 
 set.seed(2)  # set the seed
+
+start_time <- Sys.time()
 
 sample_size <- 100  # number of individual engines in each Monte Carlo sample
 constant_heterogeneity <- 2  # is the heterogeneity in the utility function constant or iid?
@@ -245,7 +283,15 @@ data <- array(NA, dim = c(sample_size, periods, 4 + 2 * number_multi_index_state
 
 for (b in 1:draws) {
   datatmp <- MCdata3(CCP_function, params, sample_size, periods)
-  data[, , , b] <- datatmp
+  data[, , , b] <- datatmp$data
 }
 
 save(data, file = save_path)
+
+end_time <- Sys.time()
+
+# Calculate the elapsed time
+elapsed_time <- end_time - start_time
+
+# Print the elapsed time
+print(elapsed_time)
