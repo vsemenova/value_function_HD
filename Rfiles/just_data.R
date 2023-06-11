@@ -1,3 +1,11 @@
+rm(list = ls())
+
+# library(matrixStats)
+library(MASS)
+library(abind)
+library(akima)
+library(stats)
+
 DPsolve_cont3 <- function(params, s_grid, z_grid, tn) {
   
   z_dimension <- length(params$multi_index)  # number of iid state variables that affect transitions
@@ -82,11 +90,11 @@ DPsolve_cont3 <- function(params, s_grid, z_grid, tn) {
     maintenance_EV <- array(0, dim = c(size_z, size_s, tn))
 
     interpolate_and_assign <- function(i) {
-      replacement_result <- interp2(s_grid, z_grid, EV1, as.vector(replacement_transitions[,,i]), as.vector(z_draws[,,i]), method = "linear")
+      replacement_result <- interp(S_grid, Z_grid, EV1, as.vector(replacement_transitions[,,i]), as.vector(z_draws[,,i]), linear = TRUE, extrap = TRUE, duplicate = "mean")
       replacement_EV[ , ,i] <- array(replacement_result, c(size_z, size_s))
       replacement_EV[is.na(replacement_EV)] <- -1000000
 
-      maintenance_result <- interp2(s_grid, z_grid, EV1, as.vector(maintenance_transitions[,,i]), as.vector(z_draws[,,i]), method = "linear")
+      maintenance_result <- interp(S_grid, Z_grid, EV1, as.vector(maintenance_transitions[,,i]), as.vector(z_draws[,,i]), linear = TRUE, extrap = TRUE, duplicate = "mean")
       maintenance_EV[ , ,i] <- array(maintenance_result, c(size_z, size_s))
       maintenance_EV[is.na(maintenance_EV)] <- -1000000
     }
@@ -110,11 +118,11 @@ DPsolve_cont3 <- function(params, s_grid, z_grid, tn) {
   
   interpolate_and_assign <- function(i) {
     replacement_result <- interp(S_grid, Z_grid, EV1, as.vector(replacement_transitions[,,i]), as.vector(z_draws[,,i]), linear = FALSE, extrap = TRUE, duplicate = "mean")
-    replacement_EV[ , ,i] <- array(diag(unlist(replacement_result)), c(size_z, size_s))
+    replacement_EV[ , ,i] <- array(diag(replacement_result$z), c(size_z, size_s))
     replacement_EV[is.na(replacement_EV)] <- -1000000
     
     maintenance_result <- interp(S_grid, S_grid, EV1, as.vector(maintenance_transitions[,,i]), as.vector(z_draws[,,i]), linear = FALSE, extrap = TRUE, duplicate = "mean")
-    maintenance_EV[ , ,i] <- array(diag(unlist(maintenance_result)), c(size_z, size_s))
+    maintenance_EV[ , ,i] <- array(diag(maintenance_result$z), c(size_z, size_s))
     maintenance_EV[is.na(maintenance_EV)] <- -1000000
   }
   
@@ -130,10 +138,6 @@ DPsolve_cont3 <- function(params, s_grid, z_grid, tn) {
   #   maintenance_EV[is.na(maintenance_EV)] <- -1000000
   # }
   
-  # grid <- meshgrid(s_grid, z_grid)
-  # S_grid <- grid$S_grid
-  # Z_grid <- grid$Z_grid
-  
   # Evaluate choice probabilities on the grid of states
   CCP_grid <- 1 / (1 + exp(params$maintenance_factor * sqrt(S_grid) + 
                              params$beta * mean(maintenance_EV, dims = 3) - 
@@ -141,13 +145,13 @@ DPsolve_cont3 <- function(params, s_grid, z_grid, tn) {
   
   # Define CCP function using interpolation
   CCP_function <- function(s, z) {
-    interp_result <- interp2(s_grid, z_grid, CCP_grid, s, z, method = "linear")
+    interp_result <- interp(S_grid, Z_grid, CCP_grid, s, z, linear = TRUE, extrap = TRUE, duplicate = "mean")
     interp_result[is.na(interp_result)] <- 1
     # for (i in 1:tn) {
     #   interp_result[ , ,i] <- interp2(s_grid, z_grid, CCP_grid, s, z, method = "linear")
     #   # interp_result[ , ,i] <- array(interp_result, c(size_z, size_s))
     # }
-    return(interp_result)
+    return(interp_result$z)
   }
   
   return(CCP_function)
@@ -241,11 +245,6 @@ MCdata3 <- function(CCP_function, params, sample_size, periods) {
   return(list(data = data, durations = durations))
 }
 
-# library(matrixStats)
-library(MASS)
-library(abind)
-library(akima)
-library(stats)
 
 # Set the current working directory
 setwd("C:\\Users\\mengs\\OneDrive\\berkeley\\RA\\Vira\\Locally_Robust_Monte_Carlo_DDC\\Locally_Robust_Monte_Carlo_DDC")
@@ -281,10 +280,22 @@ cat('Solved!\n')
 
 data <- array(NA, dim = c(sample_size, periods, 4 + 2 * number_multi_index_states, draws))
 
-for (b in 1:draws) {
+# for (b in 1:draws) {
+#   datatmp <- MCdata3(CCP_function, params, sample_size, periods)
+#   data[, , , b] <- datatmp$data
+# }
+
+# Create a function to generate the data
+generateData <- function() {
   datatmp <- MCdata3(CCP_function, params, sample_size, periods)
-  data[, , , b] <- datatmp$data
+  return(datatmp$data)
 }
+
+# Use lapply to generate the data for each iteration
+data_list <- lapply(1:draws, function(b) generateData())
+
+# Convert the list to an array
+data <- array(unlist(data_list), dim = c(size_z, size_s, tn, draws))
 
 save(data, file = save_path)
 
