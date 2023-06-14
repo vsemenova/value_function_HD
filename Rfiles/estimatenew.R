@@ -1,3 +1,8 @@
+library(Matrix)
+library(glmnet)
+library(foreach)
+library(doParallel)
+
 estimate3 <- function(Data, I, statedim, delta, powers) {
   
   # Define functions under the names given in the paper
@@ -37,7 +42,7 @@ estimate3 <- function(Data, I, statedim, delta, powers) {
   
   # We will save nonparametric regression functions here
   g_1_hat <- array(NA, dim = c(N, ncol(I), ncol(I)))
-  Hg_1_hat <- matrix(NA, nrow = N - (N/ncol(I)), ncol = ncol(I))
+  Hg_1_hat <- matrix(NA, nrow = N, ncol = ncol(I))
   g_1_tilde <- matrix(NA, nrow = N, ncol = ncol(I))
   g_1_sub <- matrix(NA, nrow = N, ncol = 1)
   g_3_hat <- matrix(NA, nrow = N, ncol = 1)
@@ -51,14 +56,18 @@ estimate3 <- function(Data, I, statedim, delta, powers) {
         cvfit <- cv.glmnet(as.matrix(X[comp, ]), y[comp], nfolds = 10)
       } else {
         # Perform lasso logistic regression with cross-validation
-        cvfit <- cv.glmnet(as.matrix(X[comp, ]), y[comp], family = "binomial", type.measure = "deviance", nfolds = 10)
+        cvfit <- cv.glmnet(as.matrix(X[comp, ]), y[comp], family = "binomial", nfolds = 3)
       }
       
-      # Get the index of the minimum deviance
-      idx <- cvfit$lambda.min
-      # Retrieve the coefficients at the minimum lambda
-      params <- coef(cvfit, s = "lambda.min")
-      # Combine intercept and coefficients
+      lambdas <- cvfit$lambda
+      # # Access the deviance values for each lambda
+      # deviance <- cvfit$cvm
+      # # Access the index of the lambda with minimum deviance
+      # idx <- which.min(deviance)      # # Access the lambda values
+      # lambdas <- cvfit$lambda
+      idx <- cvfit$index[1]
+      # Access the coefficients for the lambda with minimum deviance
+      params <- coef(cvfit, s = lambdas[idx])
       coef <- c(params[1], params[-1])
       # Compute predicted log-odds
       log_odds <- coef[1] + X_n %*% coef[-1]
@@ -67,7 +76,7 @@ estimate3 <- function(Data, I, statedim, delta, powers) {
       # Apply lower and upper bounds to predicted probabilities
       g_1_hat[,i,j] <- pmax(pmin(g_1_hat[,i,j], 0.9999), 0.0001)
       
-      Hg_1_hat[, i] <- H(g_1_hat[I[, j], i, j])
+      Hg_1_hat[I[, j], i] <- H(g_1_hat[I[, j], i, j])
     }
     
     comp <- as.logical(rep(1, N) - I[, i])
@@ -76,13 +85,15 @@ estimate3 <- function(Data, I, statedim, delta, powers) {
     if (rule_of_thumb) {
       cvfit <- glmnet::glmnet(X[comp, ], y[comp], family = "binomial", alpha = 1, lambda = rule_of_thumb_penalty / sum(comp))
     } else {
-      cvfit <- cv.glmnet(as.matrix(X[comp, ]), y[comp], family = "binomial", type.measure = "deviance", nfolds = 10)
+      cvfit <- cv.glmnet(as.matrix(X[comp, ]), y[comp], family = "binomial", nfolds = 3)
     }
-    # Get the index of the minimum deviance
-    idx <- cvfit$lambda.min
-    # Retrieve the coefficients at the minimum lambda
-    params <- coef(cvfit, s = "lambda.min")
-    # Combine intercept and coefficients
+    # # Access the lambda values
+    lambdas <- cvfit$lambda
+    # Access the index of the lambda with minimum deviance
+    # idx <- which.min(deviance)
+    idx <- cvfit$index[1]
+    # Access the coefficients for the lambda with minimum deviance
+    params <- coef(cvfit, s = lambdas[idx])
     coef <- c(params[1], params[-1])
     # Compute predicted log-odds
     log_odds <- coef[1] + X_n %*% coef[-1]
@@ -102,10 +113,16 @@ estimate3 <- function(Data, I, statedim, delta, powers) {
       lambda <- rule_of_thumb_penalty / sum(comp) 
       cvfit <- cv.glmnet(X_sub, y_sub, alpha = 1, lambda = lambda, nfolds = 10)
     } else {
-      cvfit <- cv.glmnet(x = y[comp] * X[comp, ], y = y[comp] * Hg_1_hat[, i], family = "gaussian", nfolds = 10)
+      cvfit <- cv.glmnet(x = y[comp] * X[comp, ], y = y[comp] * Hg_1_hat[comp, i], alpha = 1, family = "gaussian", type.measure = "mse", nfolds = 3)
     }
-    idx <- cvfit$indexmin
-    # coef <- coef(fit, s = fit$lambda[idx])
+    lambdas <- cvfit$lambda
+    # Access the index of the lambda with minimum deviance
+    # idx <- which.min(deviance)
+    idx <- cvfit$index[1]
+    # Access the coefficients for the lambda with minimum deviance
+    params <- coef(cvfit, s = lambdas[idx])
+    coef <- c(params[1], params[-1])
+    # coef <- coef(fit, s = fit$lambcvfit$indexda[idx])
     g_2_hat[I[, i]] <- cbind(1, X[I[, i], ]) %*% coef
   }
   
@@ -119,28 +136,20 @@ estimate3 <- function(Data, I, statedim, delta, powers) {
   for (i in 1:ncol(I)) {
     # Obtain the logical vector comp
     comp <- as.logical(1 - I[, i])
-    
     # Create a function 'mom' using the formula provided
     mom <- function(theta) {
-      d_comp <- d[comp, ]
-      Vdiff_comp <- Vdiff[comp, ]
-      y_comp <- y[comp]
-      
-      lambda_theta <- lambda((d_comp %*% theta) + Vdiff_comp)
-      lambda_diff <- lambda_theta * (y_comp - Lambda((d_comp %*% theta) + Vdiff_comp))
-      
-      d_comp * matrix(rep(lambda_diff, each = 2), ncol = 2, byrow = TRUE)
+      d[comp, ] * t(matrix(rep(lambda((d[comp, ]%*%theta) + Vdiff[comp, ]) * (y[comp] - Lambda((d[comp, ]%*%theta) + Vdiff[comp, ])), each = 2), nrow = 2))
     }
     
     # Create a function 'G' using the formula provided
     G <- function(theta) {
-      mean_mom <- colMeans(mom(theta))
-      sum(mean_mom^2)
+      # mean_mom <- colMeans(mom(theta))
+      # sum(mean_mom^2)
+      sum(colMeans(mom(theta))^2)
     }
-    
     # Estimate the parameters using 'optim'
-    estimate[, i] <- optim(c(0, 0), G)$par
-    
+    # estimate[, i] <- optim(c(0, 0), G)$par
+    estimate[, i] <- optim(par = c(0, 0), fn = G, method = "BFGS")$par
     # Update v_hat using the estimated parameters
     v_hat[I[, i]] <- (d[I[, i], ] %*% estimate[, i]) + Vdiff[I[, i], ]
   }
@@ -151,12 +160,13 @@ estimate3 <- function(Data, I, statedim, delta, powers) {
   lamb_part <- (lambda_hat * dLambda_hat * y) / Lambda_hat
   
   alpha2 <- -delta * d * lamb_part
-  phi2 <- alpha2 * matrix((H(g_1_sub) - g_2_hat), nrow = nrow(alpha2), ncol = 2, byrow = TRUE)
+  phi2 <- alpha2 * as.vector(H(g_1_sub) - g_2_hat)
+    # t(matrix(rep((H(g_1_sub) - g_2_hat), each = 2), nrow = 2))
   
   A <- matrix(NA, nrow = N, ncol = 2)
   P1 <- rep(NA, N)
   
-  phi3 <- matrix(NA, nrow = N, ncol = 1)
+  # phi3 <- matrix(NA, nrow = N, ncol = 1)
   b_rho3 <- matrix(NA, nrow = N, ncol = 1)
   
   for (i in 1:ncol(I)) {
@@ -165,14 +175,20 @@ estimate3 <- function(Data, I, statedim, delta, powers) {
       lambda <- rule_of_thumb_penalty / sum(comp) 
       cvfit <- cv.glmnet(X_sub, y_sub, alpha = 1, lambda = lambda, nfolds = 10)
     } else {
-      cvfit <- cv.glmnet(x = X_n[comp, ], y = 1 - y[comp], family = "gaussian", nfolds = 10)
+      cvfit <- cv.glmnet(x = X_n[comp, ], y = 1 - y[comp], alpha = 1, family = "gaussian", type.measure = "mse", nfolds = 3)
     }
-    idx <- cvfit$lambda.min
+    # idx <- cvfit$lambda.min
+    lambdas <- cvfit$lambda
+    # Access the index of the lambda with minimum deviance
+    # idx <- which.min(deviance)
+    idx <- cvfit$index[1]
+    # Access the coefficients for the lambda with minimum deviance
+    params <- coef(cvfit, s = lambdas[idx])
+    coef <- c(params[1], params[-1])
     # coef <- coef(fit, s = fit$lambda[idx])
     b_rho3[I[, i]] <- cbind(1, X_n[I[, i], ]) %*% coef
-    A[I[, i], ] <- array(delta * colMeans(d[comp, ] * lambda_hat[comp] * dLambda_hat[comp]), c(sum(I[, i]),1)) 
+    A[I[, i], ] <- t(replicate(sum(I[, i]), colMeans(d[comp, ] * lambda_hat[comp] * dLambda_hat[comp])))
     P1[I[, i]] <- mean(1 - y[comp])
-    
   }
   
   alpha3 <- A * as.vector(b_rho3) * as.vector(H_p(g_1_sub)) / P1
@@ -188,9 +204,15 @@ estimate3 <- function(Data, I, statedim, delta, powers) {
         lambda <- rule_of_thumb_penalty / sum(comp) 
         cvfit <- cv.glmnet(X_sub, y_sub, alpha = 1, lambda = lambda, nfolds = 10)
       } else {
-        cvfit <- cv.glmnet(x = X_n[comp, ], y = -delta * d[comp, j] * lamb_part[comp], family = "gaussian", nfolds = 10)
+        cvfit <- cv.glmnet(x = X_n[comp, ], y = -delta * d[comp, j] * lamb_part[comp], alpha = 1, family = "gaussian", type.measure = "mse", nfolds = 3)
       }
-      idx <- cvfit$lambda.min
+      lambdas <- cvfit$lambda
+      # Access the index of the lambda with minimum deviance
+      # idx <- which.min(deviance)
+      idx <- cvfit$index[1]
+      # Access the coefficients for the lambda with minimum deviance
+      params <- coef(cvfit, s = lambdas[idx])
+      coef <- c(params[1], params[-1])
       # coef <- coef(fit, s = fit$lambda[idx])
       zeta[I[, i], j] <- as.vector(cbind(1, X_n[I[, i], ]) %*% coef)
     }
@@ -200,24 +222,55 @@ estimate3 <- function(Data, I, statedim, delta, powers) {
   phi1 <- alpha1 * as.vector(y_n - g_1_sub)
   
   # Uncorrected estimates
-  mom <- function(theta) d * matrix(rep(lambda((d %*% theta) + Vdiff) * (y - Lambda((d %*% theta) + Vdiff)), each = 2), ncol = 2)
-  G <- function(theta) sum(colMeans(mom(theta))^2)
-  est1 <- optim(c(0, 0), G)$par
+  # mom <- function(theta) d * matrix(rep(lambda((d %*% theta) + Vdiff) * (y - Lambda((d %*% theta) + Vdiff)), each = 2), ncol = 2)
+  # G <- function(theta) sum(colMeans(mom(theta))^2)
+  # est1 <- optim(c(0, 0), G)$par
+  # Define the functions mom and G
+  mom <- function(theta) {
+    # lambda <- lambda((d %*% theta) + Vdiff)
+    # y_minus_lambda <- y - Lambda((d %*% theta) + Vdiff)
+    # d * matrix(rep(lambda * y_minus_lambda, each = 2), ncol = 2)
+    d * t(matrix(rep(lambda((d%*%theta) + Vdiff) * (y - Lambda((d%*%theta) + Vdiff)), each = 2), nrow = 2))
+  }
+  G <- function(theta) {
+    sum(colMeans(mom(theta))^2)
+  }
+  # Perform optimization using optim
+  est1 <- optim(par = c(0, 0), fn = G, method = "BFGS")$par
+  # est1
   
   # Estimates with correction term phi_2
-  mom_2 <- function(theta) mom(theta) + phi2
-  G <- function(theta) sum(colMeans(mom_2(theta))^2)
-  est2 <- optim(c(0, 0), G)$par
+  # mom_2 <- function(theta) mom(theta) + phi2
+  # G <- function(theta) sum(colMeans(mom_2(theta))^2)
+  mom_2 <- function(theta) {
+    mom(theta)+phi2
+  }
+  G <- function(theta) {
+    sum(colMeans(mom_2(theta))^2)
+  }
+  est2 <- optim(par = c(0, 0), fn = G, method = "BFGS")$par
   
   # Estimates with correction terms phi_2 and phi_3
-  mom_23 <- function(theta) mom(theta) + phi2 + phi3
-  G <- function(theta) sum(colMeans(mom_23(theta))^2)
-  est3 <- optim(c(0, 0), G)$par
+  # mom_23 <- function(theta) mom(theta) + phi2 + phi3
+  # G <- function(theta) sum(colMeans(mom_23(theta))^2)
+  mom_23 <- function(theta) {
+    mom(theta) + phi2 + phi3
+  }
+  G <- function(theta) {
+    sum(colMeans(mom_23(theta))^2)
+  }
+  est3 <- optim(par = c(0, 0), fn = G, method = "BFGS")$par
   
   # Fully corrected estimates with phi_1, phi_2, and phi_3
-  mom_123 <- function(theta) mom(theta) + phi1 + phi2 + phi3
-  G <- function(theta) sum(colMeans(mom_123(theta))^2)
-  est4 <- optim(c(0, 0), G)$par
+  # mom_123 <- function(theta) mom(theta) + phi1 + phi2 + phi3
+  # G <- function(theta) sum(colMeans(mom_123(theta))^2)
+  mom_123 <- function(theta) {
+    mom(theta) + phi1 + phi2 + phi3
+  }
+  G <- function(theta) {
+    sum(colMeans(mom_123(theta))^2)
+  }
+  est4 <- optim(par = c(0, 0), fn = G, method = "BFGS")$par
   
   # Calculate standard errors using the standard formula with fully adjusted moments
   diff <- 0.00001  # First difference for numerical derivative calculation
@@ -262,7 +315,6 @@ estimate3 <- function(Data, I, statedim, delta, powers) {
   # return(list(estimates = est1, est2, est3, est4, standard_errors = sd1, sd2, sd3, sd4))
   
 }
-      
 
 fullinteracts <- function(x, maxpower) {
   k <- ncol(x)
@@ -309,12 +361,8 @@ fullinteracts <- function(x, maxpower) {
   return(list(interacts = interacts, inters = inters))
 }
 
-
-library(Matrix)
-library(glmnet)
-
 periods <- 10
-sample_size <- 300
+sample_size <- 1000
 
 powers <- 1 # order of polynomial terms for the basis functions
 # 1 - only linear terms
@@ -331,6 +379,8 @@ if (powers == 1) {
 } else if (powers > 2) {
   suffix <- paste0("_", powers)
 }
+
+setwd("C:\\Users\\mengs\\Documents\\GitHub\\value_function_HD\\Rfiles")
 
 data_path <- paste0("MCdata_t=", periods, "_n=", sample_size, suffix, ".RData")
 save_path_est <- paste0("MCestimates_t=", periods, "_n=", sample_size, suffix, ".RData")
@@ -374,13 +424,37 @@ sd <- array(NA, dim = c(2, 4, draws)) # we will save the estimated standard erro
 # 'standard_errors' or 'sdtmp' below is a 2-by-4 matrix whose entries are
 # estimated standard errors for the corresponding elements of 'estimates'.
 
+# draws = 50
+
 for (i in 1:draws) {
-  
+
   result <- estimate3(Data[, , i], I, number_multi_index_states, delta, powers)
-  
+
   est[, , i] <- result$estimates
   sd[, , i] <- result$standard_errors
 }
+
+# # Set the number of cores for parallel processing
+# num_cores <- detectCores()
+# registerDoParallel(num_cores)
+# 
+# # Define a function to estimate for each iteration
+# estimate_function <- function(i) {
+#   result <- estimate3(Data[, , i], I, number_multi_index_states, delta, powers)
+#   list(estimates = result$estimates, standard_errors = result$standard_errors)
+# }
+# 
+# # Apply the function in parallel using foreach
+# results <- foreach(i = 1:draws, .combine = rbind) %dopar% {
+#   estimate_function(i)
+# }
+# 
+# # Unpack the results
+# est <- array(unlist(lapply(results, function(x) x$estimates)), dim = dim(est))
+# sd <- array(unlist(lapply(results, function(x) x$standard_errors)), dim = dim(sd))
+# 
+# # Stop parallel processing
+# stopImplicitCluster()
 
 # save all the estimates from the various bootstrap draws. We save the
 # estimated coefficients and the standard errors in separate files

@@ -1,0 +1,9 @@
+"","absolute mean bias (not corrected)","absolute mean bias (corrected)","median standard error","standard deviation (not corrected)","standard deviation (corrected)","95% confidence interval coverage (not corrected)","95% confidence interval coverage (corrected)"
+"continuation (t=10, n=100)",0.396295077710446,0.410280223888167,4.269818747864,0.224383218183646,0.249039201886409,1,1
+"replacement (t=10, n=100)",0.725006988284446,0.63431009953083,6.73796982718016,0.502744341718434,0.480165334806902,1,1
+"continuation (t=10, n=300)",NA,NA,NA,NA,NA,NA,NA
+"replacement (t=10, n=300)",NA,NA,NA,NA,NA,NA,NA
+"continuation (t=10, n=1000)",NA,NA,NA,NA,NA,NA,NA
+"replacement (t=10, n=1000)",NA,NA,NA,NA,NA,NA,NA
+"continuation (t=10, n=10000)",NA,NA,NA,NA,NA,NA,NA
+"replacement (t=10, n=10000)",NA,NA,NA,NA,NA,NA,NA
