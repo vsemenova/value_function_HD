@@ -1,9 +1,9 @@
-"","absolute mean bias (not corrected)","absolute mean bias (corrected)","median standard error","standard deviation (not corrected)","standard deviation (corrected)","95% confidence interval coverage (not corrected)","95% confidence interval coverage (corrected)"
-"continuation (t=10, n=100)",0.396295077710446,0.410280223888167,4.269818747864,0.224383218183646,0.249039201886409,1,1
-"replacement (t=10, n=100)",0.725006988284446,0.63431009953083,6.73796982718016,0.502744341718434,0.480165334806902,1,1
-"continuation (t=10, n=300)",NA,NA,NA,NA,NA,NA,NA
-"replacement (t=10, n=300)",NA,NA,NA,NA,NA,NA,NA
-"continuation (t=10, n=1000)",NA,NA,NA,NA,NA,NA,NA
-"replacement (t=10, n=1000)",NA,NA,NA,NA,NA,NA,NA
+,absolute mean bias (not corrected),absolute mean bias (corrected),median standard error,standard deviation (not corrected),standard deviation (corrected),95% confidence interval coverage (not corrected),95% confidence interval coverage (corrected)
+"continuation (t=10, n=100)",0.35376182,0.010902285,0.132586273,0.116731839,0.100230495,0.16,0.98
+"replacement (t=10, n=100)",0.603219842,0.05455505,0.207561634,0.225017297,0.196919038,0.16,0.94
+"continuation (t=10, n=300)",0.341263379,0.010834818,0.07637787,0.06991963,0.061608373,0,0.982
+"replacement (t=10, n=300)",0.587433656,0.054021341,0.119153696,0.128487856,0.114435199,0.004,0.938
+"continuation (t=10, n=1000)",0.333595688,0.010089622,0.041852904,0.036884048,0.030952231,0,0.99
+"replacement (t=10, n=1000)",0.582264274,0.052333452,0.065277403,0.067359676,0.05790236,0,0.896
 "continuation (t=10, n=10000)",NA,NA,NA,NA,NA,NA,NA
 "replacement (t=10, n=10000)",NA,NA,NA,NA,NA,NA,NA

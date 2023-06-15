@@ -362,7 +362,7 @@ fullinteracts <- function(x, maxpower) {
 }
 
 periods <- 10
-sample_size <- 1000
+sample_size <- 100
 
 powers <- 1 # order of polynomial terms for the basis functions
 # 1 - only linear terms
